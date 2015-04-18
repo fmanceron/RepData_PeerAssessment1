@@ -1,0 +1,158 @@
+---
+title: "Reproducible Research: Peer Assessment 1"
+output: 
+  html_document:
+    keep_md: true
+---
+opts_chunk$set(comment = "", error= TRUE, warning = FALSE, message = FALSE,
+               tidy = TRUE, cache = F, echo = T,
+               fig.width = 5, fig.height = 5)
+
+## Loading and preprocessing the data
+
+Let's assume that you downloaded the raw data in yout current directory.  
+
+This can be done by 
+
+- forking <https://github.com/rdpeng/RepData_PeerAssessment1>
+- an then cloning your forked repo to you local directory
+
+```{r, echo=FALSE}
+wdir<-'c:/users/frederic/dossiers/pro fred/formations/bigd/Coursera Data Science John Hopkins/Reproducible research/assignment 1/RepData_PeerAssessment1'
+setwd(wdir)
+```
+
+### checking the presence of the activity.zip file
+
+```{r}
+list.files()
+unzip('activity.zip')
+```
+
+### loading and checking the raw data
+
+```{r}        
+rdata <- read.csv('activity.csv',header=T)
+str(rdata)
+summary(rdata)
+head(rdata)
+```
+
+The data shows 61 days of 288 5 minutes sampling intervals (expressed in hours and minutes), giving **`r length(rdata$steps)`** observations
+
+## What is mean total number of steps taken per day?
+
+As there are **`r sum(is.na(rdata$steps))`** missing values among the **`r length(rdata$steps)`** observations, let's ignore them first, *which will imply the number of steps per days with missing values to be zeroed*
+
+```{r}
+stepsperday <- tapply(rdata$steps,rdata$date,sum,na.rm=T)
+hist(stepsperday, ylim=c(0,15),col = "green", breaks = 20, labels=T, main = 'Histogram of steps per day')
+```
+
+It can be noticed from the histogram that for instance there are 5 days for which the number of steps where comprised between 8000 and 9000.
+
+The mean and median of the total number of steps per day is given by the summmary function
+```{r}
+summary(stepsperday)
+```
+
+## What is the average daily activity pattern?
+
+```{r}
+meanstepsperinterval <- tapply(rdata$steps,rdata$interval,mean,na.rm=T)
+plot(levels(as.factor(rdata$interval)),meanstepsperinterval,type='l',
+        xlab = 'day\'s hours/minutes from 00:00 to 24:00', ylab='Average number of steps in the day time')
+
+
+## short interval transformation in hours and minutes
+hour <- trunc(rdata$interval/100)
+hour2 <- paste0('0',hour)
+hour2 <- substr(hour2,nchar(hour2)-1,nchar(hour2))
+minute <- rdata$interval-100*trunc(rdata$interval/100)
+minute2 <-  paste0('0',minute)
+minute2 <- substr(minute2,nchar(minute2)-1,nchar(minute2))
+timeintervals <- paste0(hour2,':',minute2)
+
+meanstepsperinterval[which(meanstepsperinterval == max(meanstepsperinterval))]
+abline(v=835,lwd=2,col='red')
+
+```
+
+The 5 minutes interval that contains the maximum number of steps is **`r timeintervals[which(meanstepsperinterval == max(meanstepsperinterval))]`** am as shown above. It actually contains **`r round(max(meanstepsperinterval))`** steps.
+
+## Imputing missing values
+As explained above, there are **`r sum(is.na(rdata$steps))`** missing values among the **`r length(rdata$steps)`** observations. In order to get more precise results, let's take them now into account.
+
+The strategy depends on the NA locations in the dataset. Are some ponctual measurements missing or are entire days missing ? Let's investigate.
+
+```{r}
+misdata <- rdata[which(is.na(rdata)),1:3]
+misdata[,1]=1
+plot(misdata$date,misdata$steps, xlab='Location of the missing data over the time')
+```
+
+The missing values seem to be concentrated. We need to zoom out.
+
+```{r}
+whereareNAs <- table(misdata$date)
+which(whereareNAs != 0)
+whereareNAs[whereareNAs != 0]
+```
+
+**Entire days are missing** so no extrapolation with the mean of 2 successive values is possible.
+
+Instead wi will replace the missing days by the mean number of steps of the other days, for every 5 minutes intervals.
+
+```{r}
+for (i in 1:length(rdata$steps)) if (is.na(rdata$steps[i])) rdata$steps[i] <- meanstepsperinterval[1 + (i-1)%%288]
+```
+
+... and check what changes:
+
+```{r}
+str(rdata)
+summary(rdata)
+head(rdata)
+stepsperday <- tapply(rdata$steps,rdata$date,sum)
+hist(stepsperday, ylim=c(0,20),col = "orange", breaks = 20, labels=T, main = 'Histogram of steps per day')
+summary(stepsperday)
+```
+
+We can notice the following:
+
+- There are no more NAs for the number of steps
+- The minimum value for the steps per days is now different from 0
+- The plot clearly shows that the total number of days having between 0 an 1000 steps has been reduced conseuently and shifted to the [10 000 , 11 000] interval where the mean stands
+- The mean and median values are the same, which was not the case when ignoring the missing values
+- The maximum value for the steps per days remains unchanged as expected
+
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+```{r, echo=FALSE,results='hide'}
+## set days to english and define the days of the week
+Sys.setlocale("LC_TIME", "English")
+
+```{r}
+weekday <-c('Monday','Tuesday','Wednesday','Thursday','Friday')
+weekend <-c('Saturday','Sunday')
+
+## create a new factor in the dataset according to weekdays or weekends
+rdata$day <- weekdays(strptime(rdata$date,'%Y-%m-%d'))
+for (i in 1:length(rdata$steps)) if (rdata$day[i] %in% weekday) rdata$day[i] <-'weekday' else rdata$day[i]<-'weekend'
+rdata$day <- as.factor(rdata$day)
+
+# split the data in 2 different sets for weekdays and weekends and compute the average number of steps in each case
+weekdaydata <- rdata[which(rdata$day== 'weekday'),]
+weekenddata <- rdata[which(rdata$day== 'weekend'),]
+weekdaymeansteps <- tapply(weekdaydata$steps,weekdaydata$interval,mean)
+weekendmeansteps <- tapply(weekenddata$steps,weekenddata$interval,mean)
+
+par(mfrow = c(2, 1), mar = c(5, 4, 2, 1))
+plot(levels(as.factor(weekdaydata$interval)),weekdaymeansteps,type='l', col = 'blue',
+        main = 'Average number of steps in a day time',xlab='',ylab='weekdays')
+plot(levels(as.factor(weekenddata$interval)),weekendmeansteps,type='l', col = 'red',
+        xlab = 'day\'s hours/minutes from 00:00 to 24:00', ylab='weekends')
+```
+
+It can be seen that the peak average number of steps is higher at weekdays, but the average number of steps is more important at weekends.
